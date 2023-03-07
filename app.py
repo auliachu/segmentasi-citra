@@ -1,18 +1,33 @@
 import streamlit as st
-from io import BytesIO
-from PIL import Image
-from tensorflow.keras.layers import Input, Dense, Conv2D, MaxPooling2D, AveragePooling2D, concatenate
-from tensorflow.keras.layers import BatchNormalization, Activation, Conv2DTranspose, Add, Dropout
-from tensorflow.keras import Model
-import numpy as np
 import cv2
+import numpy as np
+from PIL import Image
+from io import BytesIO
 
-st.title("Segmentasi Citra Optic")
-#st.write("Hello world")
+from tensorflow.keras.layers import Activation, Dropout, Conv2DTranspose, Add
+from tensorflow.keras.layers import Input, Conv2D, MaxPooling2D, concatenate
+from tensorflow.keras.layers import BatchNormalization
+from tensorflow.keras import Model
 
-########################################################################################################
-###############################################Model Arsitektur#########################################
+# Konfigurasi Halaman Web
+# Untuk mengatur Judul Web, Icon web, jenis Layout, etc
+st.set_page_config(
+    page_title="Segmentasi Citra",
+    page_icon="favicon.png",
+    layout="wide",
+    initial_sidebar_state="expanded",
+    menu_items={
+        'Get Help': 'https://google.com/',
+        'Report a bug': "mailto:riyadfebrian@gmail.com",
+        'About': "Simple ML Apps"
+    }
+)
+
 def FCDUG(input_size=(256,256,1)):
+    """
+    Arsitektur Model FCDUG
+    """
+
     inputs = Input(input_size)
     
     #encoder
@@ -86,39 +101,97 @@ def FCDUG(input_size=(256,256,1)):
     o = Conv2D(3, 1, activation = 'softmax')(o)
     
     return Model(inputs=[inputs], outputs=[o])
-    ########################################################################################################
 
-model= FCDUG(input_size=(64,64,1))
-model.summary()
-model.load_weights("Model-fcdug.h5")
+@st.cache_resource
+def load_models():
+    """
+    @st.cache_resource decorator digunakan untuk menyimpan resource model.
 
-#input image
+    Fungsi load_models() akan membuat model FCDUG dan menerapkan weights dari file .h5 
 
-uploaded_file = st.file_uploader("Choose a file")
-if uploaded_file is not None:
-    #st.write("nama file yang diupload=", uploaded_file.name)
-    bytes_image = uploaded_file.read()
+    """
+    model = FCDUG(input_size=(64,64,1))
+    model.load_weights("Model-fcdug.h5")
 
-    image = Image.open(BytesIO(bytes_image))
+    return model
 
-    st.image(image, caption='Data Testing')
+# global variable model yang bisa diakses oleh fungsi/method
+model = load_models()
 
-     # Preprocessing Image
-    # Konversi kedalam array
-    image_np  = np.asarray(image)
-    # Grayscale
-    image_np = np.mean(image_np, axis=-1, keepdims=True)
+def preprocess_image(image_predict):
+    """
+    Fungsi preprocess_image adalah untuk mempersiapkan input sebelum dimasukkan kedalam model.
 
+    """
 
-    # assuming your model expects input shape (None, 64, 64, 1)
+    # Grayscaling
+    image_np = np.mean(image_predict, axis=-1, keepdims=True)
+    # Resize ukuran gambar ke 64 x 64 
     resized_image = cv2.resize(image_np, (64, 64))
-    resized_image = np.expand_dims(resized_image, axis=-1)  # add a new dimension for grayscale channel
-    resized_image = np.expand_dims(resized_image, axis=0)
+    # Normalisasi Gambar
+    normalized_image = resized_image.astype('float32') / 255.0
+    # Menambah dimensi input untuk menyesuaikan inputan deep learning
+    input_image = np.expand_dims(normalized_image, axis=-1)  
+    input_image = np.expand_dims(input_image, axis=0)
 
-    normalize_image = resized_image / 255.0
+    return input_image
+
+@st.cache_data()
+def predict(image_predict):
+    """
+    @st.cache_data decorator berfungsi untuk caching / menyimpan data prediksi sementara
+
+    Fungsi predict digunakan untuk melakukan prediksi data
+    """
+    image = preprocess_image(image_predict)
+    prediction = model.predict(image)
+    
+    return prediction
+    
+
+def main():
+    """
+    Kode Utama yang menampilkan UI halaman web
+    seperti Judul teks, Input untuk Memilih Gambar, dan Output Gambar
+    """
+    # Menampilkan Judul teks pada Konten halaman web
+    st.title('Segmentasi Citra Optic Disk')
+
+    # Menampilkan Form untuk Mengupload File
+    uploaded_file = st.file_uploader("Choose image file")
+
+    # Seleksi kondisi untuk mengecek apakah user telah mengupload sebuah file
+    if uploaded_file is not None:
+        # Pengecekan apakah file yang di upload berformat jpg atau png 
+        if uploaded_file.name.endswith('jpg') or uploaded_file.name.endswith('png'):
+            
+            # Membaca file kedalam bentuk Bytes
+            file_contents = uploaded_file.read()
+            # Membuka objek gambar dari bytes
+            image_predict = Image.open(BytesIO(file_contents))
+            # Konversi gambar kedalam bentuk array
+            image_predict  = np.asarray(image_predict)
+
+            # Prediksi
+            output = predict(image_predict)
+
+            # Tampilkan Input Gambar
+            st.write("Input")
+            st.image(image_predict)
+
+            # Tampilkan Prediksi Segmentasi Gambar
+            st.write("Prediction")
+            st.image(output)
 
 
+        else:
+            # Jika file yang di upload bukan gambar, tampilkan pesan warning berikut
+            st.warning("File is not an image")
 
-        # Proses
-    output = model.predict(normalize_image)
-    st.image(output)
+
+if __name__ == '__main__':
+    # Kode yang berada dibawah ini akan dijalankan pertama kali ketika app.py dijalankan
+    
+    main()
+
+
